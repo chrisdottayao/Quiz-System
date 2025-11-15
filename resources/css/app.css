@@ -1,0 +1,33 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+    --primary-color: #006400; /* PSAU Green */
+    --secondary-color: #FFD700; /* Gold */
+}
+
+body {
+    background-color: #f8f9fa;
+    color: #333;
+}
+
+.navbar, .header {
+    background-color: var(--primary-color);
+    color: white;
+    padding: 10px 15px;
+}
+
+.btn-primary {
+    background-color: var(--primary-color);
+    border-color: var(--primary-color);
+}
+
+.btn-primary:hover {
+    background-color: #004d00;
+}
+
+.card-header {
+    background-color: var(--secondary-color);
+    font-weight: bold;
+}
