@@ -31,6 +31,12 @@ Route::middleware('auth')->group(function () {
     Route::get('subjects/join', [SubjectController::class,'joinForm'])->name('subjects.joinForm');
     Route::post('subjects/join', [SubjectController::class,'join'])->name('subjects.join');
     Route::get('subjects/{subject}/missed', [SubjectController::class,'missed'])->name('subjects.missed')->middleware('auth','role:teacher');
+    Route::get('results', [ResultController::class,'index'])->name('results.index');
+Route::get('results/{quiz}', [ResultController::class,'show'])->name('results.show');
+Route::post('results', [ResultController::class,'store'])->name('results.store');
+Route::get('all-results', [ResultController::class,'allResults'])->name('results.all')->middleware('role:teacher');
+Route::get('my-scores', [ResultController::class,'myScores'])->name('results.myScores');
+Route::get('teacher/student/{user}', [ResultController::class,'viewStudentResults'])->name('teacher.viewStudentResults')->middleware('role:teacher');
 });
 
 // 🔐 Role-Based Dashboards

@@ -9,27 +9,20 @@ use Illuminate\Support\Facades\Auth;
 
 class QuizController extends Controller
 {
-    // ------------------------
-    // QUIZ LIST
-    // ------------------------
     public function index()
     {
         if (auth()->user()->role === 'teacher') {
-            // Only quizzes from teacher's subjects
-            $subjectIds = auth()->user()->subjectsTeaching->pluck('id');
-
-            $quizzes = Quiz::whereIn('subject_id', $subjectIds)
-                           ->latest()
-                           ->get();
-        } 
-        else {
-            // Students: quizzes from subjects they joined AND not expired
+            // Only quizzes from teacher's subjects (or quizzes the teacher created without subject)
+            $subjectIds = auth()->user()->subjectsTeaching->pluck('id')->toArray();
+            $quizzes = Quiz::where(function($q) use ($subjectIds) {
+                $q->whereIn('subject_id', $subjectIds)
+                  ->orWhere('user_id', auth()->id());
+            })->latest()->get();
+        } else {
             $subjectIds = auth()->user()->subjectsJoined->pluck('id');
-
             $quizzes = Quiz::whereIn('subject_id', $subjectIds)
-                           ->where(function ($q) {
-                               $q->whereNull('deadline')
-                                 ->orWhere('deadline', '>', now());
+                           ->where(function($q){
+                               $q->whereNull('deadline')->orWhere('deadline','>', now());
                            })
                            ->latest()
                            ->get();
@@ -38,115 +31,90 @@ class QuizController extends Controller
         return view('quizzes.index', compact('quizzes'));
     }
 
-    // ------------------------
-    // CREATE QUIZ FORM
-    // ------------------------
     public function create()
     {
-        // Teachers can only create quizzes in their own subjects
         $subjects = auth()->user()->subjectsTeaching;
-
         return view('quizzes.create', compact('subjects'));
     }
 
-    // ------------------------
-    // STORE QUIZ
-    // ------------------------
     public function store(Request $request)
     {
         $request->validate([
-            'title'       => 'required|string|max:255',
+            'title' => 'required|string|max:255',
             'description' => 'nullable|string',
-            'subject_id'  => 'required|exists:subjects,id',
-            'deadline'    => 'nullable|date',
+            'subject_id' => 'nullable|exists:subjects,id',
+            'deadline' => 'nullable|date',
         ]);
 
-        // Ensure teacher owns the subject
-        $this->authorizeSubjectOwner($request->subject_id);
+        if ($request->subject_id) {
+            $subject = Subject::findOrFail($request->subject_id);
+            if ($subject->teacher_id !== auth()->id()) abort(403);
+        }
 
         Quiz::create([
-            'title'       => $request->title,
+            'title' => $request->title,
             'description' => $request->description,
-            'user_id'     => auth()->id(),
-            'subject_id'  => $request->subject_id,
-            'deadline'    => $request->deadline,
+            'user_id' => auth()->id(),
+            'subject_id' => $request->subject_id,
+            'deadline' => $request->deadline,
         ]);
 
-        return redirect()->route('quizzes.index')
-                         ->with('success', 'Quiz created successfully!');
+        return redirect()->route('quizzes.index')->with('success','Quiz created!');
     }
 
-    // ------------------------
-    // SHOW QUIZ (student view)
-    // ------------------------
     public function show(Quiz $quiz)
     {
-        $quiz->load('questions', 'subject');
+        $quiz->load('questions','subject');
 
         if (auth()->user()->role === 'student') {
-            if (! auth()->user()->subjectsJoined->contains($quiz->subject_id)) {
+            if (! $quiz->subject || ! $quiz->subject->students->contains(auth()->id())) {
                 abort(403, 'You are not enrolled in this subject.');
+            }
+            if ($quiz->deadline && now()->greaterThan($quiz->deadline)) {
+                return redirect()->route('results.index')->with('error','This quiz has expired.');
             }
         }
 
         return view('quizzes.show', compact('quiz'));
     }
 
-    // ------------------------
-    // EDIT QUIZ
-    // ------------------------
     public function edit(Quiz $quiz)
     {
-        $this->authorizeSubjectOwner($quiz->subject_id);
+        if ($quiz->subject && $quiz->subject->teacher_id !== auth()->id()) abort(403);
+        if (!$quiz->subject && $quiz->user_id !== auth()->id()) abort(403);
 
         $subjects = auth()->user()->subjectsTeaching;
-
-        return view('quizzes.edit', compact('quiz', 'subjects'));
+        return view('quizzes.edit', compact('quiz','subjects'));
     }
 
-    // ------------------------
-    // UPDATE QUIZ
-    // ------------------------
     public function update(Request $request, Quiz $quiz)
     {
-        $this->authorizeSubjectOwner($quiz->subject_id);
+        if ($quiz->subject && $quiz->subject->teacher_id !== auth()->id()) abort(403);
+        if (!$quiz->subject && $quiz->user_id !== auth()->id()) abort(403);
 
         $request->validate([
-            'title'       => 'required|string|max:255',
-            'description' => 'nullable|string',
-            'deadline'    => 'nullable|date',
+            'title'=>'required|string|max:255',
+            'description'=>'nullable|string',
+            'deadline'=>'nullable|date',
+            'subject_id'=>'nullable|exists:subjects,id',
         ]);
 
-        $quiz->update($request->only('title', 'description', 'deadline'));
+        if ($request->subject_id) {
+            $subject = Subject::findOrFail($request->subject_id);
+            if ($subject->teacher_id !== auth()->id()) abort(403);
+        }
 
-        return redirect()->route('quizzes.index')
-                         ->with('success', 'Quiz updated successfully!');
+        $quiz->update($request->only('title','description','deadline','subject_id'));
+
+        return redirect()->route('quizzes.index')->with('success','Quiz updated!');
     }
 
-    // ------------------------
-    // DELETE QUIZ
-    // ------------------------
     public function destroy(Quiz $quiz)
     {
-        $this->authorizeSubjectOwner($quiz->subject_id);
+        if ($quiz->subject && $quiz->subject->teacher_id !== auth()->id()) abort(403);
+        if (!$quiz->subject && $quiz->user_id !== auth()->id()) abort(403);
 
         $quiz->delete();
-
-        return redirect()->route('quizzes.index')
-                         ->with('success', 'Quiz deleted successfully!');
-    }
-
-    // ------------------------
-    // CHECK IF TEACHER OWNS SUBJECT
-    // ------------------------
-    private function authorizeSubjectOwner($subjectId)
-    {
-        $subject = Subject::findOrFail($subjectId);
-
-        if (auth()->user()->role !== 'teacher' ||
-            $subject->teacher_id !== auth()->id()) 
-        {
-            abort(403, 'Unauthorized.');
-        }
+        return redirect()->route('quizzes.index')->with('success','Quiz deleted!');
     }
 }
